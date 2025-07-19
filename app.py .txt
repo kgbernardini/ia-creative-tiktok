@@ -1,0 +1,102 @@
+import openai
+import requests
+import ffmpeg
+from googletrans import Translator
+from google.cloud import texttospeech
+import streamlit as st
+
+# Inserisci la tua chiave API OpenAI
+openai.api_key = 'la_tua_chiave_api'  # Sostituisci con la tua chiave API OpenAI
+
+# Funzione per generare lo script con GPT-3
+def genera_script(prompt):
+    risposta = openai.Completion.create(
+        engine="text-davinci-003",  # Usa GPT-3
+        prompt=prompt,
+        max_tokens=500
+    )
+    return risposta.choices[0].text.strip()
+
+# Funzione per tradurre lo script
+def traduci_testo(testo, lingua_destinazione='it'):
+    traduttore = Translator()
+    traduzione = traduttore.translate(testo, dest=lingua_destinazione)
+    return traduzione.text
+
+# Funzione per generare audio parlato con Google Text-to-Speech
+def genera_audio(testo, lingua='it-IT'):
+    client = texttospeech.TextToSpeechClient()
+
+    input_text = texttospeech.SynthesisInput(text=testo)
+    voice = texttospeech.VoiceSelectionParams(language_code=lingua, name=f'{lingua}-Wavenet-A')
+    audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.MP3)
+
+    risposta = client.synthesize_speech(input=input_text, voice=voice, audio_config=audio_config)
+
+    with open('output.mp3', 'wb') as out:
+        out.write(risposta.audio_content)
+
+# Funzione per scaricare video da Pexels
+def scarica_video(query):
+    url = f"https://api.pexels.com/videos/search?query={query}&per_page=5"
+    headers = {'Authorization': 'API_KEY_PEXELS'}  # Inserisci qui la tua chiave API Pexels
+    response = requests.get(url, headers=headers).json()
+    
+    video_url = response['videos'][0]['video_files'][0]['link']
+    video = requests.get(video_url).content
+    
+    video_file_name = f"{query}_video.mp4"
+    with open(video_file_name, 'wb') as f:
+        f.write(video)
+    
+    return video_file_name
+
+# Funzione per unire video e audio con FFmpeg
+def unisci_audio_video(video_file, audio_file, output_file):
+    ffmpeg.input(video_file).output(audio_file, vcodec='copy', acodec='aac').run()
+    ffmpeg.input(audio_file).output(output_file).run()
+
+# Funzione per ottimizzare il video per TikTok (9:16)
+def ottimizza_per_tiktok(video_file, output_file):
+    ffmpeg.input(video_file).output(output_file, vf="scale=720:1280,setsar=1").run()
+
+# Funzione principale che gestisce il flusso
+def main():
+    st.title("Generatore Video Automati per TikTok")
+
+    prompt = st.text_area('Inserisci il prompt per il video', 'Es: Scrivi uno script promozionale per una crema idratante per il viso.')
+    
+    # Selettore della lingua per l'audio
+    lingua = st.selectbox('Seleziona la lingua per l\'audio', ['it', 'en', 'fr', 'de', 'es', 'pt', 'ru'])
+
+    if st.button('Genera Video'):
+        with st.spinner('Generando lo script e il video...'):
+            # Genera lo script con GPT-3
+            script = genera_script(prompt)
+            st.write(f"**Script Generato:**\n{script}")
+
+            # Traduci lo script nella lingua selezionata
+            script_tradotto = traduci_testo(script, lingua)
+            st.write(f"**Script Tradotto:**\n{script_tradotto}")
+
+            # Genera l'audio parlato nella lingua selezionata
+            genera_audio(script_tradotto, lingua)
+            st.audio('output.mp3', format='audio/mp3')
+
+            # Scarica i video da Pexels
+            video_file = scarica_video("crema idratante")  # Personalizza con il tipo di prodotto nel prompt
+            st.video(video_file)
+
+            # Unisci il video e l'audio
+            output_file = 'video_finale.mp4'
+            unisci_audio_video(video_file, 'output.mp3', output_file)
+
+            # Ottimizza il video per TikTok (9:16)
+            video_tiktok = 'video_tiktok.mp4'
+            ottimizza_per_tiktok(output_file, video_tiktok)
+            st.video(video_tiktok)
+
+            st.success("Video generato con successo! Carica su TikTok manualmente.")
+
+if __name__ == "__main__":
+    main()
